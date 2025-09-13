@@ -1,0 +1,9 @@
+{
+  "name": "quiz-app",
+  "version": "1.0.0",
+  "description": "Secure Quiz App Prototype",
+  "main": "app.js",
+  "dependencies": {
+    "firebase": "^12.2.1"
+  }
+}

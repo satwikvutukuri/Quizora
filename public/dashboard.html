@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Professor Dashboard</title>
+  <link rel="stylesheet" href="style.css" />
+  <script type="module" src="./dashboard.js" defer></script>
+</head>
+<body>
+  <div class="container card">
+    <!-- Professor Guidelines -->
+    <div class="prof-guidelines card" style="margin-bottom: 24px; padding: 24px;">
+      <h2 style="margin-top:0;">Welcome, Professor!</h2>
+      <div style="font-size:1.11em; margin-bottom:18px;">
+        Our app provides a secure and easy way to conduct online quizzes for your students.
+      </div>
+      <ul style="margin-bottom:15px;">
+        <li><b>🔒 Protections &amp; Features:</b>
+          <ul>
+            <li><b>Single Submission Enforcement:</b> Each student can only submit the quiz once. Attempts to re-submit are automatically blocked.</li>
+            <li><b>Google Authentication:</b> Only authorized students (based on email list) can access your quiz.</li>
+            <li><b>Registration Number Verification:</b> Students must enter a valid registration number to start the quiz.</li>
+            <li><b>Full-Screen Mode:</b> Students are required to take the quiz in full-screen to minimize distractions and prevent switching tabs.</li>
+            <li><b>Auto-Save &amp; Anti-Cheat:</b> Quiz answers are auto-saved, and suspicious behaviors (like repeated reloads) are flagged.</li>
+            <li><b>Set a Timer:</b> When creating a quiz, you can set a <b>start</b> and <b>end date &amp; time</b> to automatically control when the quiz is available.</li>
+          </ul>
+        </li>
+      </ul>
+      <div style="margin-bottom:10px;">
+        <b>📝 To Create a Quiz, Please Prepare:</b>
+        <ul>
+          <li>A CSV or Excel file of your quiz questions (MCQs, short answer, etc.)</li>
+          <li>A list of student email addresses who are allowed to take the quiz</li>
+          <li>Optionally, images for your questions (see below for upload instructions)</li>
+        </ul>
+      </div>
+      <div style="margin-bottom:10px;">
+        <b>🖼️ How to Upload Images Using Postimages:</b>
+        <ol style="margin-bottom: 0;">
+          <li>Go to <a href="https://postimages.org/" target="_blank" rel="noopener">postimages.org</a></li>
+          <li>Click "Choose images" and select your image, or drag and drop it.</li>
+          <li>After upload, right-click the image and select "Copy image address".</li>
+          <li>Paste the image link in your quiz question wherever you want the image to appear.</li>
+        </ol>
+        <div style="font-size:0.98em; margin-top:4px;">
+          Your image link should look like: <span style="font-family:monospace;">https://i.postimg.cc/abc123.jpg</span>
+        </div>
+      </div>
+      <div style="margin-bottom:0;">
+        <b>❓ Need help?</b>
+        <div style="font-size:0.98em; margin-top:3px;">
+          If you have any doubts or need technical assistance, please contact:<br>
+          <b>Rohit Vuyyuru</b> (Founder): <a href="mailto:vvsroshit@gmail.com">vvsroshit@gmail.com</a><br>
+          <b>Satwik Vutukuri</b> (Co-founder): <a href="mailto:satwikvutukuri@gmail.com">satwikvutukuri@gmail.com</a>
+        </div>
+      </div>
+    </div>
+    <!-- End Professor Guidelines -->
+
+    <h1>Professor Dashboard</h1>
+    <!-- Login -->
+    <button id="login-btn" class="btn-accent">Login with Google</button>
+    <p id="profInfo"></p>
+
+    <!-- Quiz creation form -->
+    <form id="quiz-form" style="display:none;">
+      <h2>Create New Quiz</h2>
+      <label for="quiz-name">Quiz Name:</label>
+      <input type="text" id="quiz-name" required><br><br>
+
+      <label for="csv-link">CSV Link:</label>
+      <input type="text" id="csv-link" required><br><br>
+
+      <label for="allowed-emails">Allowed Student Emails (comma separated):</label><br>
+      <textarea id="allowed-emails" rows="5" cols="40" required></textarea><br><br>
+
+      <label for="quiz-start">Start Date & Time:</label>
+      <input type="datetime-local" id="quiz-start" required><br><br>
+
+      <label for="quiz-end">End Date & Time:</label>
+      <input type="datetime-local" id="quiz-end" required><br><br>
+
+      <button type="submit" id="createQuizBtn" class="btn-accent">Create Quiz</button>
+    </form>
+
+    <p id="result"></p>
+
+    <!-- Quiz List and Responses -->
+    <div id="quiz-list"></div>
+    <div id="responses-section"></div>
+
+    <!-- Responses Modal -->
+    <div id="responses-modal" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.7); z-index:1000; align-items:center; justify-content:center;">
+      <div style="background:#fff; color:#222; padding:24px; border-radius:8px; max-width:90vw; max-height:80vh; overflow:auto; position:relative;">
+        <button id="close-responses-modal" style="position:absolute; top:8px; right:8px;">Close</button>
+        <h2>Quiz Responses</h2>
+        <div style="margin-bottom:10px;">
+          <button id="export-csv-btn" class="btn-accent">Export CSV</button>
+          <input type="text" id="search-box" placeholder="Search by email or reg. number" style="margin-left:10px;">
+          <select id="status-filter">
+            <option value="">All Statuses</option>
+            <option value="submitted">Submitted</option>
+            <option value="autosubmitted">Auto-Submitted</option>
+          </select>
+          <input type="number" id="min-score" placeholder="Min Score" style="width:80px; margin-left:10px;">
+          <input type="number" id="max-score" placeholder="Max Score" style="width:80px;">
+          <button id="apply-filters" class="btn-accent" style="margin-left:10px;">Apply Filters</button>
+        </div>
+        <table id="responses-table" border="1" style="width:100%; border-collapse:collapse;">
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>Registration Number</th>
+              <th>Score</th>
+              <th>Status</th>
+              <th>Submitted At</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <script>
+    // Optional: For improved UX, set min for end time as the selected start time
+    document.addEventListener('DOMContentLoaded', () => {
+      const startInput = document.getElementById('quiz-start');
+      const endInput = document.getElementById('quiz-end');
+      if (startInput && endInput) {
+        startInput.addEventListener('change', () => {
+          endInput.min = startInput.value;
+        });
+        endInput.addEventListener('change', () => {
+          if (endInput.value < startInput.value) {
+            endInput.value = startInput.value;
+          }
+        });
+      }
+    });
+  </script>
+</body>
+</html>

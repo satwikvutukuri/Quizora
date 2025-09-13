@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Student Quiz</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script type="module" src="./student.js" defer></script>
+</head>
+<body>
+  <div class="container card">
+
+    <!-- Student Guidelines -->
+    <div class="student-guidelines card" id="guidelines" style="margin-bottom: 24px; padding: 24px;">
+      <h2>Welcome, Student!</h2>
+      <p>
+        <strong>Before you begin your quiz, please read these important guidelines carefully:</strong>
+      </p>
+      <h3 style="color:#c00;">&#x26D4; DON’Ts – What Not To Do During The Quiz:</h3>
+      <ul>
+        <li><strong>Do not</strong> try to open other tabs, windows, or apps while taking the quiz. Full-screen mode is required and switching may auto-submit or disqualify your attempt.</li>
+        <li><strong>Do not</strong> refresh, reload, or close your browser during the quiz. You may lose your answers or be locked out.</li>
+        <li><strong>Do not</strong> use multiple devices or browsers to access the quiz. Only your first login will count.</li>
+        <li><strong>Do not</strong> attempt to submit the quiz more than once. Only your first submission will be accepted.</li>
+        <li><strong>Do not</strong> share quiz questions, answers, or screenshots with anyone. Academic honesty is expected.</li>
+        <li><strong>Do not</strong> impersonate another student or use someone else’s Google account or registration number.</li>
+      </ul>
+      <h3 style="color:#198754;">&#x2705; Additional Guidelines:</h3>
+      <ul>
+        <li>Ensure your internet connection is stable before starting.</li>
+        <li>Have your registration number and Google account ready.</li>
+        <li>Read each question carefully and answer within the given time.</li>
+      </ul>
+      <h3 style="color:#a91c7a;">&#x2753; Facing Problems?</h3>
+      <p>
+        If you face any issues with the quiz, immediately contact your professor.<br>
+        <em>Do not try to bypass or troubleshoot on your own, as this may affect your submission.</em>
+      </p>
+    </div>
+    <!-- End Student Guidelines -->
+
+    <h1>Student Quiz Portal</h1>
+    <!-- Login -->
+    <button id="login-btn" class="btn-accent">Login with Google</button>
+    <p id="studentInfo"></p>
+
+    <!-- Registration number -->
+    <div id="reg-section" style="display:none;">
+      <label>Enter Registration Number:</label>
+      <input type="text" id="reg-num">
+      <button id="lock-reg-btn" class="btn-accent">Start Quiz</button>
+      <button id="view-results-btn" class="btn-accent" style="display:none;">View Results</button>
+      <div id="reg-error-msg" style="color:#ff6b6b; margin-top:8px; min-height:20px;"></div>
+    </div>
+
+    <!-- Quiz area -->
+    <div id="quiz-section" style="display:none;">
+      <h2 id="quizTitle"></h2>
+      <div id="global-timer" style="font-size:1.2em; color:var(--accent); margin-bottom:10px;"></div>
+      <div id="question-timer" style="font-size:1em; color:var(--muted); margin-bottom:10px;"></div>
+      <div id="slider-reveal-wrap" style="margin-bottom:10px;">
+        <label for="reveal-slider">Slide to reveal question:</label>
+        <input type="range" id="reveal-slider" min="0" max="100" value="0" style="width:200px;">
+      </div>
+      <div id="question-container"></div>
+      <button id="submit-btn" class="btn-accent">Submit</button>
+    </div>
+
+    <div id="result-section" style="display:none;"><p id="result-text"></p></div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Styled Quiz App</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>Simple Quiz App</h1>
+    <!-- Start Screen -->
+    <div id="start-screen">
+      <button id="googleLoginBtn">Sign in with Google</button>
+      <div style="margin: 12px 0;">
+        <label for="regNo">Registration Number:</label>
+        <input id="regNo" type="text" placeholder="Enter reg. no" />
+      </div>
+      <button id="startBtn" disabled>Start Quiz</button>
+      <button id="leaderboardBtn" style="display:none; margin-left:8px;">Leaderboard</button>
+    </div>
+
+    <!-- Progress Bar -->
+    <div id="progressBar" style="width:100%;background:#eee;height:22px;border-radius:11px;margin:10px 0 18px 0;overflow:hidden">
+      <span style="display:block;background:#4caf50;height:100%;width:0%;color:#fff;text-align:center;border-radius:11px;" id="progressBar"></span>
+    </div>
+
+    <!-- Quiz Screen -->
+    <div id="quiz-screen" class="hidden">
+      <div id="questionCard">
+        <div class="quiz-header">
+          <!-- Viewport Reveal Section -->
+        </div>
+        <!-- Add your quiz questions/components here -->
+      </div>
+    </div>
+  </div>
+  <!-- Add your JS includes here -->
+</body>
+</html>

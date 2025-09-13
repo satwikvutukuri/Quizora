@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Quiz</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <script type="module" src="./quiz.js" defer></script>
+  <style>
+    /* Hide main quiz container and overlay initially */
+    #quiz-main-container, #fullscreen-overlay {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <!-- Fullscreen overlay shown when ready to start -->
+  <div id="fullscreen-overlay" class="overlay card" style="text-align:center; padding:2em;">
+    <h1>Ready to Start?</h1>
+    <button id="real-start-btn" class="btn-accent" style="font-size:1.3em;">Start Quiz</button>
+    <p style="margin-top:20px;">The quiz will start in full screen mode.<br>No text can be copied or selected.</p>
+  </div>
+
+  <!-- Main quiz UI (hidden by default) -->
+  <div id="quiz-main-container" class="quiz-container card" style="max-width:650px;margin:2.5em auto;padding:2em;">
+    <div id="global-timer" style="font-weight:bold; font-size:1.15em; margin-bottom:12px;"></div>
+    <div id="question-timer" style="margin-bottom:12px;"></div>
+    <div id="question-box"></div>
+    <input type="range" id="question-slider" style="width:100%;margin:12px 0;" />
+    <div id="options-box"></div>
+    <button id="next-btn" class="btn-accent" style="margin-top:18px;">Next</button>
+    <button id="submit-btn" class="btn-accent" style="margin-top:18px; display:none;">Submit</button>
+    <div id="result-section" style="margin-top:22px;">
+      <span id="result-text"></span>
+    </div>
+  </div>
+</body>
+</html>

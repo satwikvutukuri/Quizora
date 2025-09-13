@@ -1,0 +1,8 @@
+{
+  "projects": {
+    "default": "quizora-9d933",
+    "prod": "quizora-9d933"
+  },
+  "targets": {},
+  "etags": {}
+}
