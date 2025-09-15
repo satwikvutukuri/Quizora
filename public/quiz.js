@@ -1,15 +1,11 @@
 import { auth, provider, db } from "./firebase.js";
 import {
-  collection,
-  getDocs,
-  query,
-  where,
   doc,
   getDoc,
   setDoc
 } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
 
-// --- Autosave Drafts ---
+// --- State variables ---
 let user = null;
 let quizData = null;
 let currentQuizId = null;
@@ -18,6 +14,7 @@ let currentQuestionIndex = 0;
 let answers = {};
 let quizSubmitted = false;
 let registrationNumber = null;
+let autoSubmitReason = null; // For tracking autosubmission reason
 
 const globalTimerDiv = document.getElementById("global-timer");
 const questionTimerDiv = document.getElementById("question-timer");
@@ -28,29 +25,45 @@ const nextBtn = document.getElementById("next-btn");
 const submitBtn = document.getElementById("submit-btn");
 const resultSection = document.getElementById("result-section");
 const resultText = document.getElementById("result-text");
-const quizTitleEl = document.getElementById("quiz-title");
-const draftStatus = document.getElementById("draft-status");
 
-// --- Anti-cheat: enforce on quiz ---
+// --- Anti-cheat enforcement ---
 function enforceAntiCheat() {
   document.addEventListener("contextmenu", e => e.preventDefault());
   document.addEventListener("copy", e => e.preventDefault());
   document.addEventListener("paste", e => e.preventDefault());
   document.addEventListener("keydown", e => {
-    if (e.key === "F12" || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "i")) e.preventDefault();
-    if (e.ctrlKey && (e.key.toLowerCase() === "c" || e.key.toLowerCase() === "v")) e.preventDefault();
-    if (e.key === "Tab") e.preventDefault();
+    if (
+      e.key === "F12" ||
+      (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "i") ||
+      (e.ctrlKey && (e.key.toLowerCase() === "c" || e.key.toLowerCase() === "v")) ||
+      e.key === "Tab" ||
+      e.key === "PrintScreen" ||
+      ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "4" || e.key === "3")) ||
+      (e.key === "S" && e.shiftKey && (e.ctrlKey || e.metaKey))
+    ) {
+      e.preventDefault();
+      autoSubmitQuiz('anticheat');
+    }
+  });
+  document.addEventListener("keyup", e => {
+    if (
+      e.key === "PrintScreen" ||
+      ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "4" || e.key === "3")) ||
+      (e.key === "S" && e.shiftKey && (e.ctrlKey || e.metaKey))
+    ) {
+      autoSubmitQuiz('anticheat');
+    }
   });
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) autoSubmitQuiz();
+    if (document.hidden) autoSubmitQuiz('anticheat');
   });
   document.addEventListener("fullscreenchange", () => {
-    if (!document.fullscreenElement) autoSubmitQuiz();
+    if (!document.fullscreenElement) autoSubmitQuiz('anticheat');
   });
 }
 enforceAntiCheat();
 
-// --- Fullscreen on load ---
+// --- Fullscreen enforcement on load ---
 window.onload = () => {
   function showFullscreenPrompt() {
     let msg = document.getElementById('fullscreen-msg');
@@ -88,7 +101,7 @@ window.onload = () => {
   });
 };
 
-// --- Quiz state from sessionStorage (set by student.js) ---
+// --- Get quiz session state ---
 user = JSON.parse(sessionStorage.getItem("quizUser"));
 registrationNumber = sessionStorage.getItem("quizRegNum");
 currentQuizId = sessionStorage.getItem("quizId");
@@ -97,66 +110,37 @@ if (!user || !registrationNumber || !currentQuizId) {
   window.location.href = "student.html";
 }
 
-// --- Draft Autosave/Restore ---
-function autosaveDraft() {
-  if (!currentQuizId || !registrationNumber) return;
-  const draft = {
-    quizId: currentQuizId,
-    registrationNumber,
-    answers,
-    currentQuestionIndex
-  };
-  sessionStorage.setItem('quizDraft', JSON.stringify(draft));
-  if (draftStatus) {
-    draftStatus.style.display = "block";
-    draftStatus.innerText = "Draft autosaved.";
-    setTimeout(() => { draftStatus.style.display = "none"; }, 1500);
-  }
-}
-setInterval(autosaveDraft, 20000); // Save every 20 seconds
+let globalTimerInterval = null;
+let questionTimerInterval = null;
 
-function restoreDraftIfAvailable() {
-  const draftStr = sessionStorage.getItem('quizDraft');
-  if (draftStr) {
-    try {
-      const draft = JSON.parse(draftStr);
-      if (
-        draft.quizId === currentQuizId &&
-        draft.registrationNumber === registrationNumber
-      ) {
-        answers = draft.answers || {};
-        currentQuestionIndex = draft.currentQuestionIndex || 0;
-        if (draftStatus) {
-          draftStatus.style.display = "block";
-          draftStatus.innerText = "Draft restored! Continue from where you left off.";
-          setTimeout(() => { draftStatus.style.display = "none"; }, 2500);
-        }
-        return true;
-      }
-    } catch (e) {}
-  }
-  return false;
+function clearAllTimers() {
+  if (globalTimerInterval) clearInterval(globalTimerInterval);
+  if (questionTimerInterval) clearInterval(questionTimerInterval);
 }
 
-// --- Load quiz data and start ---
+// --- Load quiz data and start logic ---
 (async function() {
   const quizDoc = await getDoc(doc(db, "quizzes", currentQuizId));
   quizData = quizDoc.data();
-  if (quizTitleEl) quizTitleEl.innerText = quizData.quizName || "Quiz";
-  // Quiz status check
+
+  // --- Time window check ---
   const now = new Date();
-  const startDate = quizData.startDate ? new Date(quizData.startDate) : null;
-  const endDate = quizData.endDate ? new Date(quizData.endDate) : null;
-  if (startDate && now < startDate) {
-    alert(`Quiz has not started yet. Starts at: ${startDate.toLocaleString()}`);
-    window.location.href = "student.html";
+  let quizStart = quizData.quizStart ? new Date(quizData.quizStart) : null;
+  let quizEnd = quizData.quizEnd ? new Date(quizData.quizEnd) : null;
+
+  if (quizStart && now < quizStart) {
+    document.body.innerHTML = `<div style="color:#e85d6f;max-width:450px;margin:80px auto;font-size:1.3em;text-align:center;background:#18223a;padding:32px 16px;border-radius:16px;">
+      Quiz not started yet.<br>Please come back at <b>${quizStart.toLocaleString()}</b>.
+    </div>`;
     return;
   }
-  if (endDate && now > endDate) {
-    alert(`Quiz has expired. Ended at: ${endDate.toLocaleString()}`);
-    window.location.href = "student.html";
+  if (quizEnd && now > quizEnd) {
+    document.body.innerHTML = `<div style="color:#e85d6f;max-width:450px;margin:80px auto;font-size:1.3em;text-align:center;background:#18223a;padding:32px 16px;border-radius:16px;">
+      Quiz is now closed.<br>It ended at <b>${quizEnd.toLocaleString()}</b>.
+    </div>`;
     return;
   }
+
   const csvQuestions = await parseCSV(quizData.questionsCsvUrl);
   let globalTimer = 15 * 60;
   const globalTimerRow = csvQuestions.find(q => q.global_timer);
@@ -166,10 +150,6 @@ function restoreDraftIfAvailable() {
   questions = csvQuestions.filter(q => q.question && q.question.trim());
   shuffleArray(questions);
   startGlobalTimer(globalTimer);
-  if (!restoreDraftIfAvailable()) {
-    currentQuestionIndex = 0;
-    answers = {};
-  }
   renderQuestion();
 })();
 
@@ -191,8 +171,6 @@ function shuffleArray(arr) {
   }
 }
 
-let globalTimerInterval = null;
-let questionTimerInterval = null;
 function startGlobalTimer(timeLeft) {
   updateGlobalTimerDisplay(timeLeft);
   globalTimerInterval = setInterval(() => {
@@ -204,6 +182,7 @@ function startGlobalTimer(timeLeft) {
     }
   }, 1000);
 }
+
 function updateGlobalTimerDisplay(timeLeft) {
   const min = Math.floor(timeLeft / 60);
   const sec = timeLeft % 60;
@@ -221,11 +200,11 @@ function startQuestionTimer(seconds) {
       clearInterval(questionTimerInterval);
       answers[`q${currentQuestionIndex + 1}`] = null;
       currentQuestionIndex++;
-      autosaveDraft();
       renderQuestion();
     }
   }, 1000);
 }
+
 function updateQuestionTimerDisplay(timeLeft) {
   questionTimerDiv.textContent = `Time left for this question: ${timeLeft}s`;
 }
@@ -233,48 +212,107 @@ function updateQuestionTimerDisplay(timeLeft) {
 function autoSubmitQuiz(reason) {
   if (quizSubmitted) return;
   quizSubmitted = true;
+  autoSubmitReason = reason;
+  clearAllTimers();
   nextBtn.disabled = true;
   submitBtn.disabled = true;
-  const radios = document.querySelectorAll('input[type="radio"]');
-  const checks = document.querySelectorAll('input[type="checkbox"]');
-  const texts = document.querySelectorAll('input[type="text"]');
-  radios.forEach(el => el.disabled = true);
-  checks.forEach(el => el.disabled = true);
-  texts.forEach(el => el.disabled = true);
-  if (reason === 'timer') alert("Time's up! Submitting your quiz.");
-  else alert("Quiz auto-submitted due to anti-cheat.");
+  document.querySelectorAll('input[type="radio"]').forEach(el => el.disabled = true);
+  document.querySelectorAll('input[type="checkbox"]').forEach(el => el.disabled = true);
+  document.querySelectorAll('input[type="text"]').forEach(el => el.disabled = true);
+
+  if (reason === 'timer') {
+    alert("Time's up! Submitting your quiz.");
+  } else if (reason === 'anticheat') {
+    alert("Quiz auto-submitted due to anti-cheat (window/tab switch, fullscreen exit, or screenshot).");
+  } else {
+    alert("Quiz auto-submitted.");
+  }
   submitBtn.click();
 }
 
-// Helper for checked status when restoring answers
-function answerChecked(q, opt) {
-  const ans = answers[`q${currentQuestionIndex+1}`];
-  if (q.type === "single") {
-    return ans === opt ? "checked" : "";
-  }
-  if (q.type === "multi") {
-    return Array.isArray(ans) && ans.includes(opt) ? "checked" : "";
-  }
-  return "";
-}
-
+// ----------- UI LOGIC (LIKE THE REFERENCE IMAGE!) -----------
 function renderQuestion() {
+  document.getElementById("quiz-main")?.classList.add("quiz-centered");
+  // Add no-select CSS, disable selection
+  if (!document.getElementById('no-select-style')) {
+    const style = document.createElement('style');
+    style.id = 'no-select-style';
+    style.innerHTML = `
+      .no-select, .no-select * {
+        user-select: none !important;
+        -webkit-user-select: none !important;
+        -ms-user-select: none !important;
+        -moz-user-select: none !important;
+        pointer-events: auto;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+  questionBox.classList.add('no-select');
+  optionsBox.classList.add('no-select');
+  ['copy','cut','selectstart','contextmenu'].forEach(evt => {
+    questionBox["on"+evt] = null;
+    optionsBox["on"+evt] = null;
+  });
+  ['copy','cut','selectstart','contextmenu'].forEach(evt => {
+    questionBox.addEventListener(evt, e => e.preventDefault());
+    optionsBox.addEventListener(evt, e => e.preventDefault());
+  });
+  document.addEventListener('copy', e => e.preventDefault());
+  document.addEventListener('cut', e => e.preventDefault());
+  document.addEventListener('selectstart', e => e.preventDefault());
+  document.addEventListener('contextmenu', e => e.preventDefault());
+  questionBox.classList.add('no-select');
+  questionBox.oncopy = e => { e.preventDefault(); };
+  questionBox.onselectstart = e => { e.preventDefault(); };
+
+  // Ensure fullscreen for every question
+  if (!document.fullscreenElement) {
+    function goFullscreen() {
+      const el = document.documentElement;
+      if (!document.fullscreenElement) {
+        if (el.requestFullscreen) el.requestFullscreen();
+        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+        else if (el.msRequestFullscreen) el.msRequestFullscreen();
+      }
+    }
+    goFullscreen();
+    setTimeout(() => {
+      if (!document.fullscreenElement) {
+        let msg = document.getElementById('fullscreen-msg');
+        if (!msg) {
+          msg = document.createElement('div');
+          msg.id = 'fullscreen-msg';
+          msg.style = 'color: #ff5252; font-size: 1.1em; margin-bottom: 12px; text-align:center;';
+          msg.innerText = 'Please enable fullscreen mode to continue the quiz.';
+          document.body.prepend(msg);
+        }
+        goFullscreen();
+      } else {
+        const msg = document.getElementById('fullscreen-msg');
+        if (msg) msg.remove();
+      }
+    }, 500);
+  }
+
   if (currentQuestionIndex >= questions.length) {
-    optionsBox.innerHTML = "<p>All questions done. Please submit.</p>";
-    nextBtn.style.display = "none";
-    submitBtn.style.display = "block";
-    questionTimerDiv.textContent = "";
-    clearInterval(questionTimerInterval);
+    // Instead of showing "All questions done. Please submit.", we auto-submit and show results
+    handleQuizCompletion();
     return;
   }
-  submitBtn.style.display = "none";
-  nextBtn.style.display = "block";
+
   const q = questions[currentQuestionIndex];
   let qTime = 30;
   if (q.timer && !isNaN(Number(q.timer))) qTime = Number(q.timer);
   startQuestionTimer(qTime);
 
-  // Slider box logic
+  // --- IMAGE HANDLING ---
+  let imageHtml = "";
+  if (q.image && q.image.trim().length > 0) {
+    imageHtml = `<img src="${q.image}" alt="Question Image" style="max-width:250px;max-height:140px;display:block;margin:0 auto 18px auto;border-radius:12px;box-shadow:0 2px 10px #111c2d66;">`;
+  }
+
+  // --- QUESTION TEXT & SLIDER (like reference) ---
   const visibleChars = Math.ceil((q.question || '').length / 2);
   questionSlider.value = 0;
   questionSlider.max = Math.max(0, (q.question || '').length - visibleChars);
@@ -282,46 +320,70 @@ function renderQuestion() {
     const start = Number(questionSlider.value);
     const end = start + visibleChars;
     const visibleText = (q.question || '').substring(start, end);
-    questionBox.innerHTML = `<div style="width:350px; overflow:hidden; border:1px solid var(--border2); background:var(--card); padding:8px 12px; font-size:1.1em; margin-bottom:10px; white-space:nowrap;">${visibleText}</div>`;
+    questionBox.innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;">
+        ${imageHtml}
+        <div class="question-centered-box">
+          ${visibleText}
+        </div>
+        <input type="range" id="question-slider-internal" min="0" max="${Math.max(0, (q.question || '').length - visibleChars)}" value="${questionSlider.value}" style="width:90%;max-width:480px;margin:0 0 0 0;">
+      </div>
+    `;
+    // Sync main slider and card slider
+    const sliderInternal = document.getElementById("question-slider-internal");
+    if (sliderInternal) {
+      sliderInternal.value = questionSlider.value;
+      sliderInternal.oninput = function() {
+        questionSlider.value = this.value;
+        updateSliderBox();
+      };
+    }
+    questionSlider.oninput = function() {
+      if (sliderInternal) sliderInternal.value = this.value;
+      updateSliderBox();
+    };
   }
-  questionSlider.oninput = updateSliderBox;
   updateSliderBox();
 
-  // Show options and restore if draft present
+  // --- OPTIONS ---
   let html = '';
   if (q.type === "single") {
     html += q.options.split(";").map((opt, i) =>
-      `<div style="display:flex;align-items:center;margin-bottom:8px;">
-        <input type="radio" name="option" value="${opt}" id="opt${i}" style="margin-right:10px;" ${answerChecked(q, opt)} />
+      `<div class="option-row">
+        <input type="radio" name="option" value="${opt}" id="opt${i}" />
         <label for="opt${i}" style="margin:0;">${opt}</label>
       </div>`
     ).join("");
   } else if (q.type === "multi") {
     html += q.options.split(";").map((opt, i) =>
-      `<div style="display:flex;align-items:center;margin-bottom:8px;">
-        <input type="checkbox" name="option" value="${opt}" id="opt${i}" style="margin-right:10px;" ${answerChecked(q, opt)} />
+      `<div class="option-row">
+        <input type="checkbox" name="option" value="${opt}" id="opt${i}" />
         <label for="opt${i}" style="margin:0;">${opt}</label>
       </div>`
     ).join("");
   } else if (q.type === "text") {
-    html += `<input type="text" id="text-answer" value="${answers[`q${currentQuestionIndex+1}`] || ""}" />`;
+    html += `<input type="text" id="text-answer" class="option-row" style="width:95%;max-width:420px;padding:15px 12px;font-size:1.09em;">`;
   }
   optionsBox.innerHTML = html;
 
-  // For single option: auto-advance on select
+  // --- AUTO-NEXT on single option select ONLY ---
   if (q.type === "single") {
+    nextBtn.style.display = "none";
     document.querySelectorAll('input[type="radio"][name="option"]').forEach(radio => {
       radio.addEventListener('change', function() {
         if (this.checked) {
           clearInterval(questionTimerInterval);
           answers[`q${currentQuestionIndex + 1}`] = this.value;
           currentQuestionIndex++;
-          autosaveDraft();
           renderQuestion();
         }
       });
     });
+  } else if (q.type === "multi" || q.type === "text") {
+    // Show next button, do NOT auto-advance
+    nextBtn.style.display = "block";
   }
+  // Submit button will only be shown in the "all questions done" state (handled separately).
 }
 
 nextBtn.onclick = () => {
@@ -342,11 +404,13 @@ nextBtn.onclick = () => {
   }
   answers[`q${currentQuestionIndex + 1}`] = ans;
   currentQuestionIndex++;
-  autosaveDraft();
   renderQuestion();
 };
 
-submitBtn.onclick = async () => {
+// --- NEW: handleQuizCompletion shows result and score in same window ---
+async function handleQuizCompletion() {
+  clearAllTimers();
+  // Calculate score
   let score = 0;
   questions.forEach((q, i) => {
     const userAns = answers[`q${i + 1}`];
@@ -359,26 +423,50 @@ submitBtn.onclick = async () => {
       if (JSON.stringify(correct) === JSON.stringify(userAnsArr)) score++;
     }
   });
+
+  let status = autoSubmitReason ? "autosubmitted" : "submitted";
+  let autoReason = autoSubmitReason
+    ? (autoSubmitReason === "anticheat"
+        ? "Student left window/tab or exited fullscreen or screenshot"
+        : autoSubmitReason)
+    : "";
+
+  // Save to Firestore (same as before)
   await setDoc(doc(db, "quizzes", currentQuizId, "responses", user.uid), {
     registrationNumber,
     email: user.email,
     answers,
     score,
-    status: quizSubmitted ? "autosubmitted" : "submitted",
     attemptedAt: new Date(),
+    status,
+    autoSubmitReason: autoReason
   });
-  sessionStorage.removeItem('quizDraft'); // Clear draft upon submit
-  quizSubmitted = true;
-  quizBoxDisable();
-  resultSection.style.display = "block";
-  resultText.innerText = `Quiz submitted! Registration number: ${registrationNumber}\nScore: ${score}`;
-  setTimeout(() => {
-    window.location.href = "results.html";
-  }, 2000);
-};
+  sessionStorage.setItem("quizResult", JSON.stringify({ registrationNumber, score, status, autoSubmitReason: autoReason }));
 
-function quizBoxDisable() {
-  nextBtn.disabled = true;
-  submitBtn.disabled = true;
-  Array.from(document.querySelectorAll('input')).forEach(el => el.disabled = true);
+  // Show result on the same page
+  questionBox.innerHTML = "";
+  optionsBox.innerHTML = "";
+  nextBtn.style.display = "none";
+  submitBtn.style.display = "none";
+  questionTimerDiv.textContent = "";
+  globalTimerDiv.textContent = "";
+
+  // Show result section
+  resultSection.style.display = "block";
+  resultText.innerHTML = `
+    <div style="color:var(--accent2);font-size:1.35em;font-weight:bold;margin-bottom:8px;">
+      Quiz successfully submitted!
+    </div>
+    <div style="font-size:1.2em;color:var(--text);margin-bottom:10px;">
+      Your Score: <b>${score}</b> out of <b>${questions.length}</b>
+    </div>
+    <div style="color:var(--muted);font-size:1em;">
+      ${status === "autosubmitted" ? "(Quiz was automatically submitted)" : ""}
+    </div>
+  `;
 }
+
+submitBtn.onclick = async () => {
+  // When submit button is clicked, just call handleQuizCompletion
+  await handleQuizCompletion();
+};

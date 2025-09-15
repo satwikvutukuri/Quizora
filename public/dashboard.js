@@ -14,11 +14,11 @@ import {
 
 let user = null;
 let quizzes = [];
-let responsesCache = [];
 
 const loginBtn = document.getElementById("login-btn");
 const quizForm = document.getElementById("quiz-form");
 const quizList = document.getElementById("quiz-list");
+const responsesSection = document.getElementById("responses-section");
 
 // Professor login
 loginBtn.onclick = async () => {
@@ -34,53 +34,64 @@ loginBtn.onclick = async () => {
   }
 };
 
-// Create quiz (with start/end date and validation)
+// --- DATE LIMIT LOGIC FOR FORM ---
+
+// Dynamically update min for end datetime when start datetime changes
+const startInput = document.getElementById("quiz-start");
+const endInput = document.getElementById("quiz-end");
+if (startInput && endInput) {
+  startInput.addEventListener("input", function () {
+    endInput.min = this.value;
+    // Optional UX: if endInput is before new min, clear it
+    if (endInput.value && endInput.value < this.value) {
+      endInput.value = "";
+    }
+  });
+  // On form reset, clear min on endInput
+  quizForm.addEventListener("reset", function () {
+    setTimeout(() => {
+      endInput.min = "";
+      endInput.value = "";
+    }, 10);
+  });
+}
+
+// --- END DATE LIMIT LOGIC ---
+
+// Create quiz
 quizForm.onsubmit = async (e) => {
   e.preventDefault();
   const quizName = quizForm["quiz-name"].value.trim();
   const csvUrl = quizForm["csv-link"].value.trim();
   const allowedEmails = quizForm["allowed-emails"].value.split(",").map(e => e.trim()).filter(e => !!e);
-  const startDate = quizForm["quiz-start"].value;
-  const endDate = quizForm["quiz-end"].value;
 
-  // Validation for required fields
-  if (!quizName || !csvUrl || allowedEmails.length === 0 || !startDate || !endDate) {
-    return alert("Fill all fields and provide at least one email and quiz time window.");
+  // Get date and time (if present in form)
+  let quizStart = startInput ? startInput.value : null;
+  let quizEnd = endInput ? endInput.value : null;
+
+  if (!quizName || !csvUrl || allowedEmails.length === 0) {
+    return alert("Fill all fields and provide at least one email");
   }
-
-  // Validation: endDate must be after startDate
-  if (new Date(endDate) <= new Date(startDate)) {
-    return alert("End Date & Time must be after Start Date & Time.");
+  if (startInput && endInput && (!quizStart || !quizEnd)) {
+    return alert("Please select both start and end date/time.");
   }
-
-  // Validation: startDate must not be in the past
-  const now = new Date();
-  if (new Date(startDate) < now) {
-    return alert("Start Date & Time cannot be in the past.");
+  if (quizStart && quizEnd && quizEnd < quizStart) {
+    return alert("End Date & Time cannot be before Start Date & Time.");
   }
-
   await addDoc(collection(db, "quizzes"), {
     owner: user.uid,
     quizName,
     questionsCsvUrl: csvUrl,
     allowedEmails,
-    startDate,
-    endDate,
     createdAt: new Date(),
+    ...(quizStart && { quizStart }),
+    ...(quizEnd && { quizEnd })
   });
   alert("Quiz created!");
   quizForm.reset();
   loadQuizzes();
 };
 
-function getQuizStatus(start, end) {
-  const now = new Date();
-  const startDt = new Date(start);
-  const endDt = new Date(end);
-  if (now < startDt) return "Not Started";
-  if (now > endDt) return "Expired";
-  return "Active";
-}
 
 async function loadQuizzes() {
   quizList.innerHTML = "Loading quizzes...";
@@ -94,15 +105,18 @@ async function loadQuizzes() {
   const baseUrl = window.location.origin;
   quizList.innerHTML = quizzes.map(q => {
     const quizLink = `${baseUrl}/student.html?quiz=${q.id}`;
-    const status = getQuizStatus(q.startDate, q.endDate);
-    let statusColor = "green";
-    if (status === "Not Started") statusColor = "#e08f00";
-    if (status === "Expired") statusColor = "red";
+    let dateInfo = '';
+    if (q.quizStart || q.quizEnd) {
+      dateInfo = `<div style="font-size:.98em; color:#94b3d1; margin-bottom:2px;">
+        ${q.quizStart ? `Start: <b>${q.quizStart.replace('T',' ')}</b>` : ""}
+        ${q.quizEnd ? `<br>End: <b>${q.quizEnd.replace('T',' ')}</b>` : ""}
+      </div>`;
+    }
     return `<div style="margin-bottom:18px;" data-quiz-row="${q.id}">
-      <b>${q.quizName}</b> <span style="margin-left:10px; color: ${statusColor};">[${status}]</span><br>
+      <b>${q.quizName}</b><br>
+      ${dateInfo}
       <span style="font-size:0.97em;">Quiz Link: <input type='text' value='${quizLink}' id='link-${q.id}' readonly style='width:60%;font-size:1em;' />
       <button onclick="navigator.clipboard.writeText(document.getElementById('link-${q.id}').value);this.innerText='Copied!';setTimeout(()=>this.innerText='Copy',1200)">Copy</button></span><br>
-      <span style="font-size:0.9em; color:#666;">From: ${new Date(q.startDate).toLocaleString()} To: ${new Date(q.endDate).toLocaleString()}</span><br>
       <button class="view-responses-btn" data-quizid="${q.id}">View Responses</button>
       <button class="delete-quiz-btn" data-quizid="${q.id}">Delete Quiz</button>
     </div>`;
@@ -117,108 +131,29 @@ async function loadQuizzes() {
   });
 }
 
-// Show responses in modal with filters/search/export
+
+// Show responses in modal
 async function showResponsesModal(quizId) {
   const modal = document.getElementById('responses-modal');
   const tableBody = document.querySelector('#responses-table tbody');
-  tableBody.innerHTML = '<tr><td colspan="5">Loading...</td></tr>';
+  tableBody.innerHTML = '<tr><td colspan="3">Loading...</td></tr>';
   modal.style.display = 'flex';
 
+  // Fetch responses
   const respSnap = await getDocs(collection(db, "quizzes", quizId, "responses"));
-  responsesCache = [];
-  respSnap.forEach(doc => {
-    const d = doc.data();
-    responsesCache.push({
-      email: d.email || '',
-      registrationNumber: d.registrationNumber || '',
-      score: d.score ?? 'N/A',
-      status: d.status || '',
-      submittedAt: d.attemptedAt
-        ? (d.attemptedAt.seconds
-            ? new Date(d.attemptedAt.seconds * 1000).toLocaleString()
-            : new Date(d.attemptedAt).toLocaleString())
-        : ''
+  tableBody.innerHTML = '';
+  if (respSnap.empty) {
+    tableBody.innerHTML = '<tr><td colspan="3">No responses yet.</td></tr>';
+  } else {
+    respSnap.forEach(doc => {
+      const d = doc.data();
+      tableBody.innerHTML += `<tr>
+        <td>${d.email || ''}</td>
+        <td>${d.registrationNumber || ''}</td>
+        <td>${d.score ?? 'N/A'}</td>
+      </tr>`;
     });
-  });
-
-  // Render all responses initially
-  renderResponsesTable(responsesCache);
-
-  // Export CSV
-  document.getElementById('export-csv-btn').onclick = () => {
-    exportResponsesToCSV(responsesCache);
-  };
-
-  // Filters/search
-  document.getElementById('apply-filters').onclick = () => {
-    applyFilters();
-  };
-  document.getElementById('search-box').oninput = () => {
-    applyFilters();
-  };
-}
-
-// Render responses to table
-function renderResponsesTable(responses) {
-  const tableBody = document.querySelector('#responses-table tbody');
-  if (!responses.length) {
-    tableBody.innerHTML = '<tr><td colspan="5">No responses yet.</td></tr>';
-    return;
   }
-  tableBody.innerHTML = responses.map(d => `<tr>
-    <td>${d.email}</td>
-    <td>${d.registrationNumber}</td>
-    <td>${d.score}</td>
-    <td>${d.status}</td>
-    <td>${d.submittedAt}</td>
-  </tr>`).join("");
-}
-
-// Export as CSV
-function exportResponsesToCSV(responses) {
-  if (!responses.length) return alert("No responses to export.");
-  const header = ["Email", "Registration Number", "Score", "Status", "Submitted At"];
-  const rows = responses.map(d => [
-    d.email,
-    d.registrationNumber,
-    d.score,
-    d.status,
-    d.submittedAt
-  ]);
-  const csv = [header, ...rows].map(r => r.map(x => `"${String(x).replace(/"/g, '""')}"`).join(",")).join("\r\n");
-  const blob = new Blob([csv], { type: "text/csv" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "quiz_responses.csv";
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-}
-
-// Filters: status, score range, search
-function applyFilters() {
-  let filtered = [...responsesCache];
-  const status = document.getElementById('status-filter').value;
-  const minScore = parseFloat(document.getElementById('min-score').value);
-  const maxScore = parseFloat(document.getElementById('max-score').value);
-  const search = document.getElementById('search-box').value.toLowerCase();
-
-  if (status) {
-    filtered = filtered.filter(r => r.status === status);
-  }
-  if (!isNaN(minScore)) {
-    filtered = filtered.filter(r => Number(r.score) >= minScore);
-  }
-  if (!isNaN(maxScore)) {
-    filtered = filtered.filter(r => Number(r.score) <= maxScore);
-  }
-  if (search) {
-    filtered = filtered.filter(r =>
-      r.email.toLowerCase().includes(search) ||
-      r.registrationNumber.toLowerCase().includes(search)
-    );
-  }
-  renderResponsesTable(filtered);
 }
 
 // Close modal handler
@@ -244,19 +179,3 @@ async function deleteQuizAndResponses(quizId) {
   if (quizRow) quizRow.remove();
   alert("Quiz deleted successfully.");
 }
-
-// Improved UX: set min end time as selected start time
-document.addEventListener('DOMContentLoaded', () => {
-  const startInput = document.getElementById('quiz-start');
-  const endInput = document.getElementById('quiz-end');
-  if (startInput && endInput) {
-    startInput.addEventListener('change', () => {
-      endInput.min = startInput.value;
-    });
-    endInput.addEventListener('change', () => {
-      if (endInput.value < startInput.value) {
-        endInput.value = startInput.value;
-      }
-    });
-  }
-});
