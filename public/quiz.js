@@ -227,7 +227,9 @@ function autoSubmitQuiz(reason) {
   } else {
     alert("Quiz auto-submitted.");
   }
-  submitBtn.click();
+  
+  // Call handleQuizCompletion directly for auto-submit (which includes fullscreen exit)
+  handleQuizCompletion();
 }
 
 // ----------- UI LOGIC (LIKE THE REFERENCE IMAGE!) -----------
@@ -407,6 +409,23 @@ nextBtn.onclick = () => {
   renderQuestion();
 };
 
+// --- Cross-browser fullscreen exit utility function ---
+function exitFullscreen() {
+  try {
+    if (document.exitFullscreen) {
+      document.exitFullscreen();
+    } else if (document.webkitExitFullscreen) {
+      document.webkitExitFullscreen();
+    } else if (document.mozCancelFullScreen) {
+      document.mozCancelFullScreen();
+    } else if (document.msExitFullscreen) {
+      document.msExitFullscreen();
+    }
+  } catch (error) {
+    console.log("Error exiting fullscreen:", error);
+  }
+}
+
 // --- NEW: handleQuizCompletion shows result and score in same window ---
 async function handleQuizCompletion() {
   clearAllTimers();
@@ -451,19 +470,24 @@ async function handleQuizCompletion() {
   questionTimerDiv.textContent = "";
   globalTimerDiv.textContent = "";
 
-  // Show result section
+  // Show prominent quiz submission message
   resultSection.style.display = "block";
   resultText.innerHTML = `
-    <div style="color:var(--accent2);font-size:1.35em;font-weight:bold;margin-bottom:8px;">
-      Quiz successfully submitted!
+    <div style="color:var(--accent2);font-size:1.5em;font-weight:bold;margin-bottom:12px;padding:16px;background:var(--card);border-radius:8px;border:2px solid var(--accent2);text-align:center;">
+      Your quiz has been submitted.
     </div>
-    <div style="font-size:1.2em;color:var(--text);margin-bottom:10px;">
+    <div style="font-size:1.2em;color:var(--text);margin-bottom:10px;text-align:center;">
       Your Score: <b>${score}</b> out of <b>${questions.length}</b>
     </div>
-    <div style="color:var(--muted);font-size:1em;">
+    <div style="color:var(--muted);font-size:1em;text-align:center;">
       ${status === "autosubmitted" ? "(Quiz was automatically submitted)" : ""}
     </div>
   `;
+
+  // Exit fullscreen mode after showing the submission message
+  setTimeout(() => {
+    exitFullscreen();
+  }, 1000); // Small delay to ensure the message is visible before exiting fullscreen
 }
 
 submitBtn.onclick = async () => {

@@ -174,8 +174,61 @@ function lockAndSubmitQuiz(reason = "You left the quiz window or opened another 
   if (!user || !currentQuizId || !questions.length || !submitBtn || !document.body.contains(submitBtn)) return;
   quizLocked = true;
   removeAllAntiCheatListeners();
+  
+  // Show alert for auto-submission
   alert("Quiz auto-submitted: " + reason);
-  submitBtn.click();
+  
+  // Calculate score for auto-submission
+  let score = 0;
+  questions.forEach((q, i) => {
+    const userAns = answers[`q${i + 1}`];
+    if (!q.answer) return;
+    if (q.type === "single" || q.type === "text") {
+      if ((userAns || "").toLowerCase().trim() === (q.answer || "").toLowerCase().trim()) score++;
+    } else if (q.type === "multi") {
+      const correct = (q.answer || "").split(";").map(x => x.trim()).sort();
+      const userAnsArr = (userAns || []).map(x => x.trim()).sort();
+      if (JSON.stringify(correct) === JSON.stringify(userAnsArr)) score++;
+    }
+  });
+
+  // Save auto-submitted quiz results to Firestore
+  setDoc(doc(db, "quizzes", currentQuizId, "responses", user.uid), {
+    registrationNumber,
+    email: user.email,
+    answers,
+    score,
+    attemptedAt: new Date(),
+    status: "autosubmitted",
+    autoSubmitReason: reason
+  });
+
+  if (quizSection) quizSection.style.display = "none";
+  if (resultSection) resultSection.style.display = "block";
+  
+  // Show prominent quiz submission message for auto-submit
+  if (resultText) {
+    resultText.innerHTML = `
+      <div style="color:var(--accent2);font-size:1.5em;font-weight:bold;margin-bottom:12px;padding:16px;background:var(--card);border-radius:8px;border:2px solid var(--accent2);text-align:center;">
+        Your quiz has been submitted.
+      </div>
+      <div style="font-size:1.2em;color:var(--text);margin-bottom:10px;text-align:center;">
+        Registration Number: <b>${registrationNumber}</b>
+      </div>
+      <div style="font-size:1.2em;color:var(--text);margin-bottom:10px;text-align:center;">
+        Your Score: <b>${score}</b> out of <b>${questions.length}</b>
+      </div>
+      <div style="color:var(--muted);font-size:1em;text-align:center;">
+        (Quiz was automatically submitted)
+      </div>
+    `;
+  }
+  if (regErrorMsg) regErrorMsg.textContent = "";
+
+  // Exit fullscreen mode after showing the submission message
+  setTimeout(() => {
+    exitFullscreen();
+  }, 1000); // Small delay to ensure the message is visible before exiting fullscreen
 }
 
 // ----------- QUIZ WINDOW CHECK / UI CONTROL -----------
@@ -653,6 +706,23 @@ function updateQuestionTimerDisplay(timeLeft) {
   }
 }
 
+// --- Cross-browser fullscreen exit utility function ---
+function exitFullscreen() {
+  try {
+    if (document.exitFullscreen) {
+      document.exitFullscreen();
+    } else if (document.webkitExitFullscreen) {
+      document.webkitExitFullscreen();
+    } else if (document.mozCancelFullScreen) {
+      document.mozCancelFullScreen();
+    } else if (document.msExitFullscreen) {
+      document.msExitFullscreen();
+    }
+  } catch (error) {
+    console.log("Error exiting fullscreen:", error);
+  }
+}
+
 submitBtn.onclick = async () => {
   if (!user || !currentQuizId || !questions.length || !submitBtn || !document.body.contains(submitBtn)) return;
 
@@ -669,12 +739,41 @@ submitBtn.onclick = async () => {
     }
   });
 
+  // Save quiz results to Firestore
+  await setDoc(doc(db, "quizzes", currentQuizId, "responses", user.uid), {
+    registrationNumber,
+    email: user.email,
+    answers,
+    score,
+    attemptedAt: new Date(),
+    status: "submitted"
+  });
+
   removeAllAntiCheatListeners();
 
   if (quizSection) quizSection.style.display = "none";
   if (resultSection) resultSection.style.display = "block";
-  if (resultText) resultText.innerText = `Quiz submitted! Registration number: ${registrationNumber}\nScore: ${score}`;
+  
+  // Show prominent quiz submission message
+  if (resultText) {
+    resultText.innerHTML = `
+      <div style="color:var(--accent2);font-size:1.5em;font-weight:bold;margin-bottom:12px;padding:16px;background:var(--card);border-radius:8px;border:2px solid var(--accent2);text-align:center;">
+        Your quiz has been submitted.
+      </div>
+      <div style="font-size:1.2em;color:var(--text);margin-bottom:10px;text-align:center;">
+        Registration Number: <b>${registrationNumber}</b>
+      </div>
+      <div style="font-size:1.2em;color:var(--text);margin-bottom:10px;text-align:center;">
+        Your Score: <b>${score}</b> out of <b>${questions.length}</b>
+      </div>
+    `;
+  }
   if (regErrorMsg) regErrorMsg.textContent = "";
+
+  // Exit fullscreen mode after showing the submission message
+  setTimeout(() => {
+    exitFullscreen();
+  }, 1000); // Small delay to ensure the message is visible before exiting fullscreen
 };
 
 function shuffleArray(arr) {
